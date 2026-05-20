@@ -1,65 +1,140 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import Header from "@/components/Header";
 import TableData from "@/components/TableData";
 import BaseModal from "@/components/BaseModal";
+import {
+  apiRequest,
+  clearAuthSession,
+  getStoredToken,
+  getStoredUser,
+} from "@/lib/client-api";
+
+function normalizeItem(item) {
+  return {
+    ...item,
+    nama: item.nama ?? item.name,
+    stok: item.stok ?? item.stock ?? 0,
+  };
+}
 
 export default function DataBarangPage() {
-  // 1. Inisialisasi awal dengan data default
-  const [barangList, setBarangList] = useState([
-    { nama: "Buku Tulis Sidu 38 Lembar", stok: 150 },
-    { nama: "Bolpoin Faster Hitam", stok: 0 },
-  ]);
+  const router = useRouter();
+  const [barangList, setBarangList] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [user] = useState(() => getStoredUser());
 
   const [modalState, setModalState] = useState({
     isOpen: false,
     type: "add",
+    currentId: null,
     currentName: "",
-    currentStok: 0
+    currentStok: 0,
   });
 
-  // Ambil data dari localStorage secara aman tanpa memicu cascading render
-  useEffect(() => {
-    const savedData = localStorage.getItem("database_barang");
-    if (savedData) {
-      // Menggunakan jeda makrotask agar lolos dari aturan ketat linter
-      setTimeout(() => {
-        setBarangList(JSON.parse(savedData));
-      }, 0);
-    }
-  }, []);
+  const handleApiError = useCallback(
+    (apiError) => {
+      if (apiError.status === 401) {
+        clearAuthSession();
+        router.replace("/login");
+        return;
+      }
 
-  const openModalHandler = (type, name, stok = 0) => {
-    setModalState({ isOpen: true, type, currentName: name, currentStok: stok });
+      setError(
+        apiError.message || "Terjadi kesalahan saat menghubungi server.",
+      );
+    },
+    [router],
+  );
+
+  const loadItems = useCallback(async () => {
+    setError("");
+    setIsLoading(true);
+
+    try {
+      const response = await apiRequest("/api/items");
+      setBarangList(response.data.map(normalizeItem));
+    } catch (apiError) {
+      handleApiError(apiError);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [handleApiError]);
+
+  useEffect(() => {
+    if (!getStoredToken()) {
+      router.replace("/login");
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      loadItems();
+    }, 0);
+
+    return () => clearTimeout(timeoutId);
+  }, [loadItems, router]);
+
+  const openModalHandler = (type, name, stok = 0, id = null) => {
+    if (user?.role !== "admin") {
+      alert(
+        "Hanya Admin yang dapat menambah, mengubah, atau menghapus data barang.",
+      );
+      return;
+    }
+
+    setModalState({
+      isOpen: true,
+      type,
+      currentId: id,
+      currentName: name,
+      currentStok: stok,
+    });
   };
 
   const closeModalHandler = () => {
-    setModalState({ ...modalState, isOpen: false });
+    setModalState((previous) => ({ ...previous, isOpen: false }));
   };
 
-  // 3. Otak Pemroses Aksi Konfirmasi Modal + Sinkronisasi ke LocalStorage
-  const handleConfirmAction = (inputData) => {
-    const { type, currentName } = modalState;
-    let updatedList = [...barangList];
+  const handleConfirmAction = async (inputData) => {
+    setError("");
 
-    if (type === "add") {
-      updatedList = [...barangList, { nama: inputData.nama, stok: inputData.stok }];
-    } 
-    else if (type === "edit") {
-      updatedList = barangList.map((barang) => 
-        barang.nama === currentName ? { ...barang, nama: inputData.nama, stok: inputData.stok } : barang
-      );
-    } 
-    else if (type === "delete") {
-      updatedList = barangList.filter((barang) => barang.nama !== currentName);
+    try {
+      const { type, currentId } = modalState;
+
+      if (type === "add") {
+        const response = await apiRequest("/api/items", {
+          method: "POST",
+          body: JSON.stringify({ nama: inputData.nama, stok: inputData.stok }),
+        });
+        setBarangList((previous) => [
+          normalizeItem(response.data),
+          ...previous,
+        ]);
+      } else if (type === "edit") {
+        const response = await apiRequest(`/api/items/${currentId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ nama: inputData.nama, stok: inputData.stok }),
+        });
+        setBarangList((previous) =>
+          previous.map((barang) =>
+            barang.id === currentId ? normalizeItem(response.data) : barang,
+          ),
+        );
+      } else if (type === "delete") {
+        await apiRequest(`/api/items/${currentId}`, { method: "DELETE" });
+        setBarangList((previous) =>
+          previous.filter((barang) => barang.id !== currentId),
+        );
+      }
+
+      closeModalHandler();
+    } catch (apiError) {
+      handleApiError(apiError);
+      alert(apiError.message || "Aksi gagal diproses.");
     }
-
-    // Simpan ke State dan kunci ke dalam LocalStorage browser
-    setBarangList(updatedList);
-    localStorage.setItem("database_barang", JSON.stringify(updatedList));
-    
-    closeModalHandler();
   };
 
   return (
@@ -70,12 +145,27 @@ export default function DataBarangPage() {
         <Header title="Data Barang" />
 
         <main className="p-6 pb-24 md:pb-6 flex-1 w-full max-w-6xl mx-auto">
-          <TableData barangList={barangList} onTriggerModal={openModalHandler} />
+          {error && (
+            <div className="mb-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
+              {error}
+            </div>
+          )}
+
+          {isLoading ? (
+            <div className="bg-white rounded-2xl border border-[#F3F4F6] p-8 text-center text-gray-400">
+              Memuat data barang dari Supabase...
+            </div>
+          ) : (
+            <TableData
+              barangList={barangList}
+              onTriggerModal={openModalHandler}
+            />
+          )}
         </main>
       </div>
 
-      <BaseModal 
-        key={`${modalState.isOpen}-${modalState.type}-${modalState.currentName}`}
+      <BaseModal
+        key={`${modalState.isOpen}-${modalState.type}-${modalState.currentId}-${modalState.currentName}`}
         isOpen={modalState.isOpen}
         type={modalState.type}
         currentName={modalState.currentName}
