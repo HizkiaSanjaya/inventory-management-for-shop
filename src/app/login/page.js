@@ -9,9 +9,11 @@ export default function LoginPage() {
 
   const handleLogin = (e) => {
     e.preventDefault();
+    // Simpan token kuki login aktif di browser
+    document.cookie = "isLoggedIn=true; path=/";
     router.push("/");
   };
-
+  
   return (
     <div className="relative min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center overflow-hidden font-sans p-4">
       <div className="absolute top-[-10%] left-[-10%] w-[40vw] h-[40vw] rounded-full bg-blue-100/60 blur-[120px] pointer-events-none" />

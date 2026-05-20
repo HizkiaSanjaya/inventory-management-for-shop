@@ -108,9 +108,12 @@ export default function Sidebar() {
               </p>
             </div>
 
+           {/* Tombol Aksi Konfirmasi Susunan Atas-Bawah (Di dalam Modal Sidebar.js) */}
             <div className="w-full flex flex-col gap-2.5 pt-1">
               <button 
                 onClick={() => {
+                  // 1. PINDAHKAN KE SINI: Hancurkan kuki tiket login saat menekan "Ya, Logout"
+                  document.cookie = "isLoggedIn=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC;";
                   setIsLogoutOpen(false);
                   router.push("/login");
                 }}
@@ -118,13 +121,14 @@ export default function Sidebar() {
               >
                 Ya, Logout
               </button>
+              
               <button 
                 onClick={() => setIsLogoutOpen(false)}
                 className="w-full h-10 bg-[#F3F4F6] text-[#4B5563] hover:bg-gray-200 rounded-xl text-sm font-semibold cursor-pointer transition-colors"
               >
                 Batal
               </button>
-            </div>
+            </div> 
           </div>
         </div>
       )}
